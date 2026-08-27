@@ -132,8 +132,17 @@ version of the removal test kept the button pointer across `Close` and sent it
 `-window` afterwards. That is a use-after-free: it passed two runs in three and
 failed the third with a `SIGSEGV` inside `objc_msgSend`, at a program counter
 with nothing of this package in the stack — exactly the flake that gets blamed
-on the runner. The test now retains the button, and `Close` is verified by the
-button's window going from `0x152c13550` to `0x0`.
+on the runner. The test retains what it reads now.
+
+**The button's `-window` POINTER is not an observable of removal, and believing
+it was cost a red CI lane.** After `Close` it read `0x0` on this machine and
+looked like a perfect assertion. On a GitHub `macos-latest` runner it read
+`0xc60d28780` both before and after, and the darwin lane went red for a package
+that was working correctly. It only went nil here because releasing the item
+*deallocated* the window — a dealloc, not a removal, and deallocs are not
+synchronous. What `-removeStatusItem:` does synchronously, and identically on
+both machines, is order the window **out**: `-[NSWindow isVisible]` goes from
+true to false. That is what the test measures now.
 
 ## Running the tests
 
@@ -157,8 +166,8 @@ classification, tag assignment, tag dispatch, the per-item registry — is at
 
 The live suite asserts **properties**, never "it did not crash": the button's
 title read back out of AppKit, `numberOfItems`, each row's
-`isSeparatorItem`/`isEnabled`/`tag`/`target`, the button's window before and
-after `Close`, and the Go handler firing through AppKit's own
+`isSeparatorItem`/`isEnabled`/`tag`/`target`, the item window being ordered out by
+`Close`, and the Go handler firing through AppKit's own
 `-performActionForItemAtIndex:`. Every test carries a negative control — a
 nonexistent class must yield nil, the disabled row and the separator must
 dispatch *nothing*, two items must not share a tag space — because an assertion

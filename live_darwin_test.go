@@ -431,39 +431,65 @@ func TestLiveCloseRemovesTheItemFromTheMenuBar(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	// The button is captured BEFORE the close, because Close drops the item's
-	// references. Its window is the observable: -removeStatusItem: takes the
-	// item out of the menu bar, and the button's window goes with it.
+	// The item's WINDOW is the observable, and it is captured and RETAINED before
+	// the close. Both halves of that were learned the hard way.
 	//
-	// It is RETAINED here, and that is not defensive tidiness. The first version
-	// of this test kept the raw pointer and sent -window to it after Close,
-	// which is a use-after-free: an NSStatusItem owns its button, so releasing
-	// the item frees the button and the read lands in freed memory. It passed
-	// two runs in three and failed the third with a SIGSEGV inside objc_msgSend,
-	// at a program counter with nothing of this package in the stack — the shape
-	// of flake that gets blamed on the runner.
-	var button objc.ID
-	var before objc.ID
+	// Retaining is not defensive tidiness. The first version of this test kept
+	// the button pointer across Close and read -window from it afterwards, which
+	// is a use-after-free: an NSStatusItem owns its button, so releasing the item
+	// frees the button and the read lands in freed memory. It passed two runs in
+	// three and failed the third with a SIGSEGV inside objc_msgSend, at a program
+	// counter with nothing of this package in the stack — the shape of flake that
+	// gets blamed on the runner.
+	//
+	// The WINDOW rather than the button's -window POINTER, because that pointer
+	// is not an observable of removal at all. On this machine it read nil after
+	// Close and looked like a perfect assertion; on a GitHub macos-latest runner
+	// it read 0xc60d28780 both before and after, and the lane went red for a
+	// package that was working. It only went nil here because releasing the item
+	// deallocated the window — a dealloc, not a removal, and deallocs are not
+	// synchronous. What -removeStatusItem: does synchronously, and identically on
+	// both machines, is order the window OUT. So that is what is measured.
+	var window, button objc.ID
 	onMain(t, func() {
 		button = i.button
 		button.Send(objc.Sel("retain"))
-		before = button.Send(objc.Sel("window"))
+		window = button.Send(objc.Sel("window"))
+		if window != 0 {
+			window.Send(objc.Sel("retain"))
+		}
 	})
-	t.Cleanup(func() { onMain(t, func() { button.Send(objc.Sel("release")) }) })
-	if before == 0 {
+	t.Cleanup(func() {
+		onMain(t, func() {
+			button.Send(objc.Sel("release"))
+			if window != 0 {
+				window.Send(objc.Sel("release"))
+			}
+		})
+	})
+	if window == 0 {
 		t.Fatal("the item had no window even before Close; there is nothing for Close to remove")
+	}
+	// The negative control for the assertion below: the window must be on screen
+	// to begin with, or "not on screen afterwards" proves nothing.
+	if !visible(t, window) {
+		t.Fatal("the item's window was already off screen before Close")
 	}
 
 	if err := i.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	var after objc.ID
-	onMain(t, func() { after = button.Send(objc.Sel("window")) })
-	if after != 0 {
-		t.Errorf("the button still has window %#x after Close: the item was not removed from the menu bar",
-			uintptr(after))
+	// Polled rather than read once, in case a session orders the window out on a
+	// later turn of the loop. It must still HAPPEN: the deadline fails.
+	deadline := time.Now().Add(5 * time.Second)
+	for visible(t, window) {
+		if time.Now().After(deadline) {
+			t.Errorf("the item's window %#x is still on screen 5s after Close: "+
+				"the item was not removed from the menu bar", uintptr(window))
+			break
+		}
 	}
-	t.Logf("button window %#x before Close, %#x after", uintptr(before), uintptr(after))
+	t.Logf("window %#x: on screen before Close, off screen after", uintptr(window))
 
 	if i.item != 0 || i.menu != 0 || i.statusBar != 0 {
 		t.Errorf("Close left references behind: item %#x, menu %#x, statusBar %#x",
@@ -543,4 +569,12 @@ func TestLiveSeparatorItemsAreDistinctObjects(t *testing.T) {
 	if tagB != 0 {
 		t.Errorf("setting a's tag changed b's, which reads %d", tagB)
 	}
+}
+
+// visible reports whether an NSWindow is on screen, read on the main thread.
+func visible(t *testing.T, window objc.ID) bool {
+	t.Helper()
+	var on bool
+	onMain(t, func() { on = boolean(window, "isVisible") })
+	return on
 }

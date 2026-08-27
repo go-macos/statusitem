@@ -370,12 +370,22 @@ func runOnMain(target objc.ID, fn func()) error {
 	}
 	var abandoned atomic.Bool
 	done := make(chan struct{})
-	hopQ <- func() {
+	queued := func() {
 		if abandoned.Load() {
 			return
 		}
 		fn()
 		close(done)
+	}
+	// The SEND is under the timeout too, and that is not belt-and-braces. A main
+	// thread that services nothing leaves its abandoned closures in the queue,
+	// so the 65th caller in a process with no run loop would block on a full
+	// channel — forever, before ever reaching the timeout below. The whole point
+	// of this function is that it cannot do that.
+	select {
+	case hopQ <- queued:
+	case <-time.After(MainHopTimeout):
+		return ErrNoMainLoop
 	}
 	target.Send(objc.Sel("performSelectorOnMainThread:withObject:waitUntilDone:"),
 		selHop, objc.ID(0), false)
