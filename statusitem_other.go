@@ -63,3 +63,6 @@ func (i *Item) Close() error { return ErrUnsupported }
 
 // OnScreen reports [ErrUnsupported]: there is no menu bar here.
 func (i *Item) OnScreen() (bool, error) { return false, ErrUnsupported }
+
+// SetSymbol reports [ErrUnsupported]: there is no menu bar here to draw in.
+func (i *Item) SetSymbol(name, description string) error { return ErrUnsupported }

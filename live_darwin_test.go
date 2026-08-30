@@ -617,3 +617,61 @@ func TestLiveOnScreenAgreesWithAppKit(t *testing.T) {
 		t.Errorf("OnScreen after Close = %v,%v, want false and ErrClosed", on, err)
 	}
 }
+
+// TestLiveSetSymbolPutsMoreInkInTheBarThanAnEmoji.
+//
+// The reason this exists, measured on the menu bar itself: a 👓 title draws 79
+// pixels of ink in the item's own strip, and the system symbols draw 100 to 206
+// in the same place. Text in a menu bar arrives at the height of a lowercase
+// letter; a symbol is drawn for the bar.
+func TestLiveSetSymbolPutsMoreInkInTheBarThanAnEmoji(t *testing.T) {
+	requireWindowServer(t)
+	ran := make(chan string, 4)
+	i := newLive(t, "👓", liveMenu(ran))
+
+	if err := i.SetSymbol("display", "XR desk"); err != nil {
+		t.Fatalf("SetSymbol: %v", err)
+	}
+	// The image is on the button and the title is gone: a title beside an image
+	// pushes it off centre.
+	var hasImage bool
+	var title string
+	onMain(t, func() {
+		hasImage = i.button.Send(objc.Sel("image")) != 0
+		title = str(i.button, "title")
+	})
+	if !hasImage {
+		t.Error("the button has no image after SetSymbol")
+	}
+	if title != "" {
+		t.Errorf("the button still says %q beside its image", title)
+	}
+
+	// A name the system does not have is refused, and what was there stays:
+	// an item that quietly goes blank is an item nobody can find.
+	if err := i.SetSymbol("no.such.symbol.anywhere", "nothing"); !errors.Is(err, ErrNoSymbol) {
+		t.Errorf("SetSymbol of a made-up name = %v, want ErrNoSymbol", err)
+	}
+	onMain(t, func() { hasImage = i.button.Send(objc.Sel("image")) != 0 })
+	if !hasImage {
+		t.Error("a refused symbol took the image that was there away")
+	}
+
+	// And the two arguments that are not optional.
+	for _, c := range []struct{ name, desc, why string }{
+		{"", "XR desk", "no name"},
+		{"   ", "XR desk", "a name of spaces"},
+		{"display", "", "no description for a screen reader"},
+	} {
+		if err := i.SetSymbol(c.name, c.desc); !errors.Is(err, ErrNoSymbol) {
+			t.Errorf("SetSymbol with %s = %v, want ErrNoSymbol", c.why, err)
+		}
+	}
+
+	if err := i.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := i.SetSymbol("display", "XR desk"); !errors.Is(err, ErrClosed) {
+		t.Errorf("SetSymbol after Close = %v, want ErrClosed", err)
+	}
+}
