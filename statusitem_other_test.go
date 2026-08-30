@@ -60,3 +60,17 @@ func TestItemMethodsAreUnsupportedButStillValidate(t *testing.T) {
 		t.Errorf("Close = %v, want ErrUnsupported", err)
 	}
 }
+
+func TestOnScreenIsUnsupported(t *testing.T) {
+	// The whole point of OnScreen is telling a caller the truth about a menu
+	// bar. Here there is no menu bar, and saying "not on screen" would read as
+	// "your item is hidden" rather than "there is nowhere to put one".
+	var i Item
+	on, err := i.OnScreen()
+	if on {
+		t.Error("an item is on screen on a platform with no menu bar")
+	}
+	if !errors.Is(err, ErrUnsupported) {
+		t.Errorf("OnScreen = %v, want ErrUnsupported", err)
+	}
+}
