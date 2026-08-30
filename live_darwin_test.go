@@ -3,6 +3,7 @@
 package statusitem
 
 import (
+	"errors"
 	"os"
 	"runtime"
 	"testing"
@@ -577,4 +578,42 @@ func visible(t *testing.T, window objc.ID) bool {
 	var on bool
 	onMain(t, func() { on = boolean(window, "isVisible") })
 	return on
+}
+
+// TestLiveOnScreenAgreesWithAppKit.
+//
+// OnScreen exists to answer the one question this package documents as
+// unanswerable from Go -- an item built in a process with no run loop is
+// "indistinguishable from one that works" -- so the test compares it with the
+// two AppKit calls it is made of, read directly, rather than with itself.
+func TestLiveOnScreenAgreesWithAppKit(t *testing.T) {
+	requireWindowServer(t)
+	ran := make(chan string, 4)
+	i := newLive(t, "⌘go", liveMenu(ran))
+
+	var visible bool
+	var window objc.ID
+	onMain(t, func() {
+		visible = boolean(i.item, "isVisible")
+		window = i.button.Send(objc.Sel("window"))
+	})
+	want := visible && window != 0
+
+	got, err := i.OnScreen()
+	if err != nil {
+		t.Fatalf("OnScreen: %v", err)
+	}
+	if got != want {
+		t.Errorf("OnScreen = %v; isVisible is %v and the button's window is %v",
+			got, visible, window != 0)
+	}
+
+	// And a closed item is not on screen, it is closed: a caller that treats
+	// "false" as "hidden" would go looking for a menu bar problem.
+	if err := i.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if on, err := i.OnScreen(); on || !errors.Is(err, ErrClosed) {
+		t.Errorf("OnScreen after Close = %v,%v, want false and ErrClosed", on, err)
+	}
 }

@@ -403,3 +403,33 @@ func runOnMain(target objc.ID, fn func()) error {
 func onMainThread() bool {
 	return objc.Send[bool](objc.ClassID("NSThread"), objc.Sel("isMainThread"))
 }
+
+// OnScreen reports whether this item is actually IN the menu bar.
+//
+// It exists because of the one failure this package documents and could not
+// otherwise answer: "a status item in a process whose main thread never runs a
+// loop is an object with no window, and it is indistinguishable -- from Go --
+// from one that works". A caller that has just built an item, logged that it
+// did, and shown a person nothing, has no way to tell which of those happened.
+// This is that way.
+//
+// Two questions, because they fail differently. -[NSStatusItem isVisible] is
+// false for an item the system has hidden -- a full menu bar, or a person
+// dragging it off with Command -- and the BUTTON's window is nil for an item
+// nothing has ever drawn, which is what a missing run loop produces.
+func (i *Item) OnScreen() (bool, error) {
+	if err := i.alive(); err != nil {
+		return false, err
+	}
+	var on bool
+	err := i.onMain(func() {
+		if i.item == 0 || i.button == 0 {
+			return
+		}
+		if i.item.Send(objc.Sel("isVisible")) == 0 {
+			return
+		}
+		on = i.button.Send(objc.Sel("window")) != 0
+	})
+	return on, err
+}

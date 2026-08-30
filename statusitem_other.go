@@ -60,3 +60,6 @@ func (i *Item) SetMenu(items []MenuItem) error {
 
 // Close reports [ErrUnsupported]. There is nothing in a menu bar to remove.
 func (i *Item) Close() error { return ErrUnsupported }
+
+// OnScreen reports [ErrUnsupported]: there is no menu bar here.
+func (i *Item) OnScreen() (bool, error) { return false, ErrUnsupported }
