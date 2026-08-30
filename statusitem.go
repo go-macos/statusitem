@@ -63,6 +63,10 @@ var (
 	// but has nothing to draw a title in, which is the shape AppKit takes when
 	// the process may not draw in the menu bar at all.
 	ErrNoButton = errors.New("statusitem: the status item has no button to put a title in")
+	// ErrNoSymbol means the name is not a symbol this system has, or is not a
+	// name at all. The item keeps whatever it was showing: one that quietly
+	// became blank is one nobody can find.
+	ErrNoSymbol = errors.New("statusitem: no such system symbol")
 
 	// ErrNoStatusBar reports that +[NSStatusBar systemStatusBar] returned nil.
 	// There is no menu bar to put an item in: no window server, or a session

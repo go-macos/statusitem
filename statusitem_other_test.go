@@ -74,3 +74,10 @@ func TestOnScreenIsUnsupported(t *testing.T) {
 		t.Errorf("OnScreen = %v, want ErrUnsupported", err)
 	}
 }
+
+func TestSetSymbolIsUnsupported(t *testing.T) {
+	var i Item
+	if err := i.SetSymbol("display", "XR desk"); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("SetSymbol = %v, want ErrUnsupported", err)
+	}
+}

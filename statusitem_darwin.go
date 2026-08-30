@@ -4,6 +4,7 @@ package statusitem
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -432,4 +433,58 @@ func (i *Item) OnScreen() (bool, error) {
 		on = i.button.Send(objc.Sel("window")) != 0
 	})
 	return on, err
+}
+
+// SetSymbol puts one of the system's own symbols in the menu bar instead of
+// text, as a TEMPLATE image.
+//
+// A title is text, and text in a menu bar is whatever the font makes of it: an
+// emoji arrives at the height of a lowercase letter, drawn flat in the menu
+// bar's own ink, among twenty other items. "l'icon de lunettes de la tray n'est
+// pas tres lisible" is what that looks like to somebody using it.
+//
+// A system symbol is drawn for this: it is vector, it is aligned to the bar's
+// cap height, and as a template it takes the menu bar's appearance -- dark on a
+// light bar, light on a dark one, white when the item is pressed, and correct
+// in a tinted menu bar without anybody choosing a colour.
+//
+// name is an SF Symbol name, such as "eyeglasses". A name the system does not
+// have reports [ErrNoSymbol] and leaves whatever is there alone, because an
+// item that quietly becomes blank is an item nobody can find.
+//
+// description is what a screen reader says. It is not optional: an image with
+// no description is a button that announces itself as nothing at all.
+func (i *Item) SetSymbol(name, description string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: no symbol name", ErrNoSymbol)
+	}
+	if strings.TrimSpace(description) == "" {
+		return fmt.Errorf("%w: a symbol needs a description for a screen reader", ErrNoSymbol)
+	}
+	if err := i.alive(); err != nil {
+		return err
+	}
+	var missing bool
+	err := i.onMain(func() {
+		objc.AutoreleasePool(func() {
+			img := objc.ID(objc.GetClass("NSImage")).Send(
+				objc.Sel("imageWithSystemSymbolName:accessibilityDescription:"),
+				objc.NSString(name), objc.NSString(description))
+			if img == 0 {
+				missing = true
+				return
+			}
+			img.Send(objc.Sel("setTemplate:"), true)
+			i.button.Send(objc.Sel("setImage:"), img)
+			// The title would sit beside the image and push it off centre.
+			i.button.Send(objc.Sel("setTitle:"), objc.NSString(""))
+		})
+	})
+	if err != nil {
+		return err
+	}
+	if missing {
+		return fmt.Errorf("%w: this system has no symbol called %q", ErrNoSymbol, name)
+	}
+	return nil
 }
